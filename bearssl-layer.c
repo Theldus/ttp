@@ -17,7 +17,7 @@ extern void log_message(const char *fmt, ...);
 #define MAX_CERT_CHAIN  8
 
 /* Global certificate storage */
-static const br_rsa_private_key  *g_server_priv_rsa_key;
+static const private_key         *g_server_priv_key;
 static const br_x509_certificate *g_cert_chain;
 static size_t                     g_cert_chain_amnt;
 
@@ -27,35 +27,69 @@ static size_t         g_ca_cert_len;
 /**
  *
  */
-static br_rsa_private_key *copy_rsa_private_key(const br_rsa_private_key *pk)
+static br_rsa_private_key *
+copy_rsa_private_key(const br_rsa_private_key *s_pk, br_rsa_private_key *d_pk)
 {
-	br_rsa_private_key *outpk;
-	outpk = xmalloc(sizeof *pk);
-	outpk->n_bitlen = pk->n_bitlen;
-	outpk->p        = xblobdup(pk->p, pk->plen);
-	outpk->plen     = pk->plen;
-	outpk->q        = xblobdup(pk->q, pk->qlen);
-	outpk->qlen     = pk->qlen;
-	outpk->dp       = xblobdup(pk->dp, pk->dplen);
-	outpk->dplen    = pk->dplen;
-	outpk->dq       = xblobdup(pk->dq, pk->dqlen);
-	outpk->dqlen    = pk->dqlen;
-	outpk->iq       = xblobdup(pk->iq, pk->iqlen);
-	outpk->iqlen    = pk->iqlen;
+	br_rsa_private_key *outpk = d_pk;
+	outpk->n_bitlen = s_pk->n_bitlen;
+	outpk->p        = xblobdup(s_pk->p, s_pk->plen);
+	outpk->plen     = s_pk->plen;
+	outpk->q        = xblobdup(s_pk->q, s_pk->qlen);
+	outpk->qlen     = s_pk->qlen;
+	outpk->dp       = xblobdup(s_pk->dp, s_pk->dplen);
+	outpk->dplen    = s_pk->dplen;
+	outpk->dq       = xblobdup(s_pk->dq, s_pk->dqlen);
+	outpk->dqlen    = s_pk->dqlen;
+	outpk->iq       = xblobdup(s_pk->iq, s_pk->iqlen);
+	outpk->iqlen    = s_pk->iqlen;
 	return outpk;
 }
 
 /**
  *
  */
-static int decode_rsa_key_pem(
+static br_ec_private_key *
+copy_ec_private_key(const br_ec_private_key *s_pk, br_ec_private_key *d_pk)
+{
+	br_ec_private_key *outpk = d_pk;
+	outpk->curve = s_pk->curve;
+	outpk->x     = xblobdup(s_pk->x, s_pk->xlen);
+	outpk->xlen  = s_pk->xlen;
+	return outpk;
+}
+
+/**
+ *
+ */
+static private_key *copy_private_key(const private_key *src_pk)
+{
+	private_key *d_pk;
+	d_pk           = xmalloc(sizeof *d_pk);
+	d_pk->key_type = src_pk->key_type;
+	if (d_pk->key_type == BR_KEYTYPE_RSA)
+		copy_rsa_private_key(&src_pk->key.rsa, &d_pk->key.rsa);
+	else if (d_pk->key_type == BR_KEYTYPE_EC)
+		copy_ec_private_key(&src_pk->key.ec, &d_pk->key.ec);
+	else {
+		log_message("Unknow private key, I can't proceed!");
+		exit(0);
+	}
+	return d_pk;
+}
+
+/**
+ *
+ */
+static int decode_key_pem(
 	const unsigned char *rsa_key_buf, size_t len,
-	const br_rsa_private_key **rk)
+	const private_key **rpk)
 {
 	const char *errname, *errmsg;
 	br_skey_decoder_context dc;
 	pem_object *pos;
 	size_t amnt_pem;
+	private_key pk;
+	int key_type;
 	int err;
 	int ret;
 
@@ -71,7 +105,7 @@ static int decode_rsa_key_pem(
 		&& !eqstr(pos[0].name, "EC PRIVATE KEY")
 		&& !eqstr(pos[0].name, "PRIVATE KEY"))
 	{
-		log_message("Not found a proper RSA key!");
+		log_message("Not found a proper private key!");
 		return ret;
 	}
 
@@ -84,12 +118,21 @@ static int decode_rsa_key_pem(
 		goto out;
 	}
 
-	if (br_skey_decoder_key_type(&dc) != BR_KEYTYPE_RSA) {
-		log_message("Expected RSA key type!\n");
-		goto out;
+	key_type    = br_skey_decoder_key_type(&dc);
+	pk.key_type = key_type;
+
+	/* Temporary shallow copy here. */
+	if (key_type == BR_KEYTYPE_RSA)
+		memcpy(&pk.key.rsa, br_skey_decoder_get_rsa(&dc), sizeof(pk.key.rsa));
+	else if (key_type == BR_KEYTYPE_EC)
+		memcpy(&pk.key.ec, br_skey_decoder_get_ec(&dc), sizeof(pk.key.ec));
+	else {
+		log_message("Unkown key type found!, aborting...!");
+		exit(0);
 	}
 
-	*rk = copy_rsa_private_key(br_skey_decoder_get_rsa(&dc));
+	/* Fully duplicate the private key in memory. */
+	*rpk = copy_private_key(&pk);
 	ret = 1;
 out:
 	for (size_t i = 0; pos[i].name; i++)
@@ -192,9 +235,9 @@ sock_write(void *ctx, const unsigned char *buf, size_t len)
  */
 int ssl_init_server_private_key(const uint8_t *pk_buf, size_t len)
 {
-	if (g_server_priv_rsa_key)
+	if (g_server_priv_key)
 		return 1;
-	if (!decode_rsa_key_pem(pk_buf, len, &g_server_priv_rsa_key)) {
+	if (!decode_key_pem(pk_buf, len, &g_server_priv_key)) {
 		log_message("Failed to decode rsa server key!");
 		return 0;
 	}
@@ -222,16 +265,24 @@ int ssl_init_server_certificate_chain(const uint8_t *chain, size_t len)
  */
 int ssl_init_server_context(struct ssl_server_context *ctx, int *sock)
 {
-	if (!g_cert_chain || !g_server_priv_rsa_key) {
+	if (!g_cert_chain || !g_server_priv_key) {
 		log_message("Private key and/or certificate chain not configured!");
 		return 0;
 	}
 
 	/* Initialize server context with global certificates */
-	br_ssl_server_init_full_rsa(&ctx->sc,
-		g_cert_chain,
-		g_cert_chain_amnt,
-		g_server_priv_rsa_key);
+	if (g_server_priv_key->key_type == BR_KEYTYPE_RSA) {
+		br_ssl_server_init_full_rsa(&ctx->sc,
+			g_cert_chain,
+			g_cert_chain_amnt,
+			&g_server_priv_key->key.rsa);
+	} else {
+		br_ssl_server_init_full_ec(&ctx->sc,
+			g_cert_chain,
+			g_cert_chain_amnt,
+			BR_KEYTYPE_EC,
+			&g_server_priv_key->key.ec);
+	}
 
 	/* Set the I/O buffer to our provided array. */
 	br_ssl_engine_set_buffer(&ctx->sc.eng, ctx->iobuf, sizeof ctx->iobuf, 1);

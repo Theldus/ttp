@@ -257,11 +257,8 @@ static int handle_plaintext_msg(struct ssl_server_context *ctx, int plaintext_so
 	int     wlen;
 
 	rlen = read(plaintext_sock, buffer, sizeof(buffer));
-	if (rlen < 0) {
-		log_message("Read from target failed for client: (fd=%d) %s",
-			plaintext_sock, strerror(errno));
+	if (rlen <= 0)
 		return -1;
-	}
 
 	wlen = ssl_write_all(ctx, buffer, rlen);
 	if (wlen != 0) {
@@ -378,6 +375,7 @@ static void handle_client(int ssl_sock)
  */
 static int setup_server_socket(int port)
 {
+	int reuse;
 	int server_sock;
 	struct sockaddr_in server_addr;
 
@@ -391,6 +389,13 @@ static int setup_server_socket(int port)
 	server_addr.sin_family      = AF_INET;
 	server_addr.sin_addr.s_addr = INADDR_ANY;
 	server_addr.sin_port        = htons(port);
+
+	/* Reuse previous address. */
+	reuse = 1;
+	if (setsockopt(server_sock, SOL_SOCKET, SO_REUSEADDR, (const char *)&reuse,
+		sizeof(reuse)) < 0) {
+		log_message("Unable to reuse address!");
+	}
 
 	if (bind(server_sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
 		log_message("Failed to bind: %s", strerror(errno));
