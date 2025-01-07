@@ -9,7 +9,9 @@ OBJS     = ttp.o base64.o bearssl-layer.o
 OBJS    += $(TOOLSDIR)/files.o \
 	       $(TOOLSDIR)/vector.o \
 	       $(TOOLSDIR)/xmem.o \
-	       $(TOOLSDIR)/names.o
+	       $(TOOLSDIR)/names.o \
+	       $(TOOLSDIR)/certs.o \
+	       $(TOOLSDIR)/errors.o
 
 .PHONY: all
 all: ttp Makefile

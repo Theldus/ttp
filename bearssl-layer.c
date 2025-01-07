@@ -21,8 +21,9 @@ static const private_key         *g_server_priv_key;
 static const br_x509_certificate *g_cert_chain;
 static size_t                     g_cert_chain_amnt;
 
-static unsigned char *g_ca_cert;
-static size_t         g_ca_cert_len;
+/* CA. */
+static const br_x509_certificate  *g_ca;
+static const br_x509_trust_anchor *g_trust_anchor;
 
 /**
  *
@@ -259,56 +260,106 @@ int ssl_init_server_certificate_chain(const uint8_t *chain, size_t len)
 }
 
 /**
+ *
+ */
+int ssl_init_server_certificate_authority(const char *ca_buf, size_t len)
+{
+	size_t ca_amnt;
+	if (g_ca)
+		return 1;
+
+	/* The decode is pretty much the same as in the certificate
+	 * but we ignore the length here, since I'm expecting
+	 * to be always 1. */
+	if (!decode_cert_chain_pem(ca_buf, len, &g_ca, &ca_amnt)) {
+		log_message("Failed to decode certificate CA!");
+		return 0;
+	}
+	if (ca_amnt > 1) {
+		log_message("CA amnt greater than 1...");
+		return 0;
+	}
+
+	/* Convert our certificate to trust anchor. */
+	g_trust_anchor = certificate_to_trust_anchor((br_x509_certificate *)g_ca);
+	if (!g_trust_anchor) {
+		log_message("Unable to convert CA certificate to trust anchor...");
+		return 0;
+	}
+
+	return 1;
+}
+
+/**
  * @brief Initializes server context with global certificates
  * @param ctx Server context to initialize
+ * @param sock Socket file descriptor pointer
  * @return 1 on success, 0 on failure
  */
 int ssl_init_server_context(struct ssl_server_context *ctx, int *sock)
 {
-	if (!g_cert_chain || !g_server_priv_key) {
-		log_message("Private key and/or certificate chain not configured!");
-		return 0;
-	}
+    /* Validate required certificates and keys are present */
+    if (!g_cert_chain || !g_server_priv_key) {
+        log_message("Private key and/or certificate chain not configured!");
+        return 0;
+    }
 
-	/* Initialize server context with global certificates */
-	if (g_server_priv_key->key_type == BR_KEYTYPE_RSA) {
-		br_ssl_server_init_full_rsa(&ctx->sc,
-			g_cert_chain,
-			g_cert_chain_amnt,
-			&g_server_priv_key->key.rsa);
-	} else {
-		br_ssl_server_init_full_ec(&ctx->sc,
-			g_cert_chain,
-			g_cert_chain_amnt,
-			BR_KEYTYPE_EC,
-			&g_server_priv_key->key.ec);
-	}
+    /* === Server Context Initialization === */
+    if (g_server_priv_key->key_type == BR_KEYTYPE_RSA) {
+        br_ssl_server_init_full_rsa(&ctx->sc,
+            g_cert_chain,
+            g_cert_chain_amnt,
+            &g_server_priv_key->key.rsa);
+    } else {
+        br_ssl_server_init_full_ec(&ctx->sc,
+            g_cert_chain,
+            g_cert_chain_amnt,
+            BR_KEYTYPE_EC,
+            &g_server_priv_key->key.ec);
+    }
 
-	/* Set the I/O buffer to our provided array. */
-	br_ssl_engine_set_buffer(&ctx->sc.eng, ctx->iobuf, sizeof ctx->iobuf, 1);
+    /* === Certificate Validation Setup === */
+    /* Initialize X.509 validator with trust anchor */
+    br_x509_minimal_init_full(&ctx->xc, g_trust_anchor, 1);
 
-	/* Reset the server context, for a new handshake. */
-	br_ssl_server_reset(&ctx->sc);
+    /* Setup client certificate authentication */
+    br_ssl_server_set_trust_anchor_names_alt(&ctx->sc, g_trust_anchor, 1);
+    br_ssl_engine_set_x509(&ctx->sc.eng, &ctx->xc.vtable);
 
-	/* Initialize BearSSL I/O */
-	br_sslio_init(&ctx->ioc, &ctx->sc.eng, sock_read, sock, sock_write, sock);
+    /* === Cryptographic Operations Setup === */
+    /* Set default signature verification algorithms */
+    br_ssl_engine_set_default_rsavrfy(&ctx->sc.eng);
+    br_ssl_engine_set_default_ec(&ctx->sc.eng);
 
-#if 0
-	/* Initialize X.509 validator */
-	br_x509_minimal_init(&ctx->xc, &br_sha256_vtable, g_ca_cert, g_ca_cert_len);
-	br_ssl_engine_set_x509(&ctx->sc.eng, &ctx->xc.vtable);
-
-	/* Require client authentication */
-	br_ssl_server_set_client_auth(&ctx->sc, 1);
-#endif
-	return 1;
+    /* === I/O and Buffer Setup === */
+    /* Configure engine buffer */
+    br_ssl_engine_set_buffer(&ctx->sc.eng, ctx->iobuf, sizeof ctx->iobuf, 1);
+    /* Reset server context for new handshake */
+    br_ssl_server_reset(&ctx->sc);
+    /* Initialize BearSSL I/O with socket callbacks */
+    br_sslio_init(&ctx->ioc, &ctx->sc.eng, sock_read, sock, sock_write, sock);
+    return 1;
 }
 
 /**
  *
  */
-int ssl_read(struct ssl_server_context *ctx, void *dest, size_t len) {
-	return br_sslio_read(&ctx->ioc, dest, len);
+int ssl_read(struct ssl_server_context *ctx, void *dest, size_t len)
+{
+	const char *msg;
+	int ret;
+	int err;
+
+	ret = br_sslio_read(&ctx->ioc, dest, len);
+	if (ret < 0) {
+		/* Check if error. */
+		err = ctx->sc.eng.err;
+		if (err != BR_ERR_OK) {
+			msg = find_error_name(err, &msg);
+			log_message("Disconnected due to: (%s)", msg);
+		}
+	}
+	return ret;
 }
 
 /**

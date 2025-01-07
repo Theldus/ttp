@@ -34,7 +34,6 @@ static const char *g_target_host = "127.0.0.1";
 static const char *REQUIRED_ENV_VARS[] = {
 	"TTP_SERVER_CERT_B64",
 	"TTP_SERVER_KEY_B64",
-	"TTP_CA_CERT_B64",
 	"TTP_LOG_PATH",
 	"TTP_LISTEN_PORT",
 	"TTP_TARGET_PORT",
@@ -114,9 +113,9 @@ static int check_environment(void)
  */
 static int init_certificates(void)
 {
-	const char *server_key_b64, *server_cert_b64;
-	uint8_t    *decoded_key,    *decoded_cert;
-	size_t     key_len, cert_len;
+	const char *server_key_b64, *server_cert_b64, *server_ca_b64;
+	uint8_t    *decoded_key,    *decoded_cert,    *decoded_ca;
+	size_t     key_len, cert_len, ca_len;
 	int ret = 0;
 
 	/* Decode server private key */
@@ -137,19 +136,41 @@ static int init_certificates(void)
 		goto cleanup_key;
 	}
 
-	/* Initialize SSL components */
-	if (!ssl_init_server_private_key(decoded_key, key_len)) {
-		log_message("Failed to decode rsa server key");
+	/* Decode server certificate authority. */
+	server_ca_b64 = getenv("TTP_CA_CERT_B64");
+	if (!server_ca_b64) {
+		log_message("Server CA not found, skipping client authentication...");
+		goto init;
+	}
+	decoded_ca = base64_decode((const uint8_t*)server_ca_b64,
+		strlen(server_ca_b64), &ca_len);
+	if (!decoded_ca) {
+		log_message("Failed to decode (base65) server CA!");
 		goto cleanup_cert;
 	}
 
+
+init:
+	/* Initialize SSL components */
+	if (!ssl_init_server_private_key(decoded_key, key_len)) {
+		log_message("Failed to decode rsa server key");
+		goto cleanup_ca;
+	}
 	if (!ssl_init_server_certificate_chain(decoded_cert, cert_len)) {
 		log_message("Failed to decode certificate chain");
-		goto cleanup_cert;
+		goto cleanup_ca;
+	}
+	if (server_ca_b64) {
+		if (!ssl_init_server_certificate_authority(decoded_ca, ca_len)) {
+			log_message("Failed to decode certificate authority");
+			goto cleanup_ca;
+		}
 	}
 
 	ret = 1;
 
+cleanup_ca:
+	free(decoded_ca);
 cleanup_cert:
 	free(decoded_cert);
 cleanup_key:
