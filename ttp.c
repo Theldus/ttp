@@ -140,6 +140,7 @@ static int init_certificates(void)
 	server_ca_b64 = getenv("TTP_CA_CERT_B64");
 	if (!server_ca_b64) {
 		log_message("Server CA not found, skipping client authentication...");
+		decoded_ca = NULL;
 		goto init;
 	}
 	decoded_ca = base64_decode((const uint8_t*)server_ca_b64,
