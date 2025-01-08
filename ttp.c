@@ -182,18 +182,17 @@ cleanup_key:
  * @brief Creates and connects socket to target server
  * @param host Target host address
  * @param port Target port
- * @param client_ip Client IP for logging
  * @return Socket descriptor on success, -1 on failure
  */
-static int connect_to_target(const char *host, int port, const char *client_ip)
+static int connect_to_target(const char *host, int port)
 {
 	struct sockaddr_in target_addr;
 	int target_sock;
 
 	target_sock = socket(AF_INET, SOCK_STREAM, 0);
 	if (target_sock < 0) {
-		log_message("Failed to create target socket for client %s: %s",
-			   client_ip, strerror(errno));
+		log_message("Failed to create target socket (error: %s)",
+			strerror(errno));
 		return -1;
 	}
 
@@ -205,8 +204,8 @@ static int connect_to_target(const char *host, int port, const char *client_ip)
 	if (connect(target_sock, (struct sockaddr*)&target_addr,
 		sizeof(target_addr)) < 0)
 	{
-		log_message("Failed to connect to target for client %s: %s",
-			client_ip, strerror(errno));
+		log_message("Failed to connect to target for client (error: %s)",
+			strerror(errno));
 		close(target_sock);
 		return -1;
 	}
@@ -298,15 +297,27 @@ static int handle_plaintext_msg(struct ssl_server_context *ctx, int plaintext_so
  * @param client_ip Client IP for logging
  */
 static void
-forward_data(
-	struct ssl_server_context *ctx,
-	int ssl_sock,
-	int plaintext_sock, const char *client_ip)
+do_proxy(const char *client_ip, struct ssl_server_context *ctx, int ssl_sock)
 {
 	struct pollfd pfds[2];
+	int plaintext_sock;
 	int openfds;
 	int r_ev;
 	int ret;
+
+	if (ssl_handshake(ctx) < 0)
+		return;
+
+	log_message("> Handshake succeeded!");
+
+	/* Connect to target server */
+	plaintext_sock = connect_to_target(g_target_host, g_target_port);
+	if (plaintext_sock < 0) {
+		log_message("Unable to connect to plaintext server!, for client: %s",
+			client_ip);
+		ssl_close(ctx);
+		return;
+	}
 
 	openfds = 2;
 	pfds[SSL_SOCK_FD].fd           = ssl_sock;
@@ -370,13 +381,6 @@ static void handle_client(int ssl_sock)
 
 	log_message("New client connection from %s", client_ip);
 
-	/* Connect to target server */
-	plaintext_sock = connect_to_target(g_target_host, g_target_port, client_ip);
-	if (plaintext_sock < 0) {
-		ssl_close(ctx);
-		return;
-	}
-
 	/* Initialize SSL */
 	if (!ssl_init_server_context(ctx, &ssl_sock)) {
 		log_message("Failed to initialize server context for client %s",
@@ -386,7 +390,7 @@ static void handle_client(int ssl_sock)
 	}
 
 	/* Handle data forwarding */
-	forward_data(ctx, ssl_sock, plaintext_sock, client_ip);
+	do_proxy(client_ip, ctx, ssl_sock);
 }
 
 /**

@@ -146,9 +146,8 @@ out:
  *
  */
 static int
-decode_cert_chain_pem(
-	const uint8_t *cert_chain_buf,
-	size_t len, const br_x509_certificate **certs, size_t *certs_amnt)
+decode_cert_chain_pem(const uint8_t *cert_chain_buf, size_t len,
+	const br_x509_certificate **certs, size_t *certs_amnt)
 {
 	VECTOR(br_x509_certificate) cert_list = VEC_INIT;
 	br_x509_certificate *xcs, xc;
@@ -382,4 +381,29 @@ int ssl_flush(struct ssl_server_context *ctx) {
 int ssl_close(struct ssl_server_context *ctx) {
 	br_sslio_close(&ctx->ioc);
 	close(*(int *)ctx->ioc.write_context);
+}
+
+/**
+ * @brief Blocks until all the initial SSL handshake is done
+ * and the server is ready to send/receive messages.
+ *
+ * @param ctx SSL context.
+ *
+ * @return Returns 0 if success, -1 otherwise.
+ */
+int ssl_handshake(struct ssl_server_context *ctx) {
+	const char *msg;
+	int ret;
+	int err;
+
+	ret = br_sslio_flush(&ctx->ioc);
+	if (ret < 0) {
+		/* Check if error. */
+		err = ctx->sc.eng.err;
+		if (err != BR_ERR_OK) {
+			msg = find_error_name(err, &msg);
+			log_message("Unable to handshake due to: (%s)", msg);
+		}
+	}
+	return ret;
 }
