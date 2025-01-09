@@ -1,3 +1,4 @@
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -194,12 +195,35 @@ decode_cert_chain_pem(const uint8_t *cert_chain_buf, size_t len,
 static int
 sock_read(void *ctx, unsigned char *buf, size_t len)
 {
+	struct ssl_server_context *s_ctx = ctx;
+	struct pollfd pfd;
 	ssize_t rlen;
+	int ret;
+
+	pfd.fd     = s_ctx->fd;
+	pfd.events = POLLIN;
+	errno      = 0;
+
 	for (;;) {
-		rlen = read(*(int *)ctx, buf, len);
-		if (rlen <= 0) {
-			if (rlen < 0 && errno == EINTR)
+		ret = poll(&pfd, 1, s_ctx->timeout_ms);
+		if (ret <= 0) {
+			if (ret == 0) {
+				log_message("Timedout, aborting connection...");
+				return -1;
+			}
+			if (errno == EINTR) {
+				errno = 0;
 				continue;
+			}
+			return -1;
+		}
+
+		rlen = read(s_ctx->fd, buf, len);
+		if (rlen <= 0) {
+			if (rlen < 0 && errno == EINTR) {
+				errno = 0;
+				continue;
+			}
 			return -1;
 		}
 		return (int)rlen;
@@ -212,9 +236,10 @@ sock_read(void *ctx, unsigned char *buf, size_t len)
 static int
 sock_write(void *ctx, const unsigned char *buf, size_t len)
 {
+	struct ssl_server_context *s_ctx = ctx;
 	ssize_t wlen;
 	for (;;) {
-		wlen = write(*(int *)ctx, buf, len);
+		wlen = write(s_ctx->fd, buf, len);
 		if (wlen <= 0) {
 			if (wlen < 0 && errno == EINTR)
 				continue;
@@ -292,10 +317,10 @@ int ssl_init_server_certificate_authority(const char *ca_buf, size_t len)
 /**
  * @brief Initializes server context with global certificates
  * @param ctx Server context to initialize
- * @param sock Socket file descriptor pointer
  * @return 1 on success, 0 on failure
  */
-int ssl_init_server_context(struct ssl_server_context *ctx, int *sock)
+int
+ssl_init_server_context(struct ssl_server_context *ctx)
 {
     /* Validate required certificates and keys are present */
     if (!g_cert_chain || !g_server_priv_key) {
@@ -336,7 +361,7 @@ int ssl_init_server_context(struct ssl_server_context *ctx, int *sock)
     /* Reset server context for new handshake */
     br_ssl_server_reset(&ctx->sc);
     /* Initialize BearSSL I/O with socket callbacks */
-    br_sslio_init(&ctx->ioc, &ctx->sc.eng, sock_read, sock, sock_write, sock);
+    br_sslio_init(&ctx->ioc, &ctx->sc.eng, sock_read, ctx, sock_write, ctx);
     return 1;
 }
 
@@ -403,7 +428,11 @@ int ssl_handshake(struct ssl_server_context *ctx) {
 		if (err != BR_ERR_OK) {
 			msg = find_error_name(err, &msg);
 			log_message("Unable to handshake due to: (%s)", msg);
+			return ret;
 		}
 	}
+
+	/* If succeeded, disable our timeout. */
+	ctx->timeout_ms = -1;
 	return ret;
 }

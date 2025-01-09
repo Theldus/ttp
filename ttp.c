@@ -293,12 +293,12 @@ static int handle_plaintext_msg(struct ssl_server_context *ctx, int plaintext_so
 
 /**
  * @brief Handles data forwarding between client and target
- * @param ctx SSL context
- * @param target_sock Target server socket
+ *
  * @param client_ip Client IP for logging
+ * @param ss_ctx    SSL context
  */
 static void
-do_proxy(const char *client_ip, struct ssl_server_context *ctx, int ssl_sock)
+do_proxy(const char *client_ip, struct ssl_server_context *ssl_ctx)
 {
 	struct pollfd pfds[2];
 	int plaintext_sock;
@@ -306,22 +306,22 @@ do_proxy(const char *client_ip, struct ssl_server_context *ctx, int ssl_sock)
 	int r_ev;
 	int ret;
 
-	if (ssl_handshake(ctx) < 0)
-		return;
+	/* Attempt to do the handshake process, including CA auth. */
+	if (ssl_handshake(ssl_ctx) < 0)
+		goto abort;
 
 	log_message("> Handshake succeeded!");
 
 	/* Connect to target server */
 	plaintext_sock = connect_to_target(g_target_host, g_target_port);
 	if (plaintext_sock < 0) {
-		log_message("Unable to connect to plaintext server!, for client: %s",
+		log_message("Unable to connect to plain-text server!, for client: %s",
 			client_ip);
-		ssl_close(ctx);
-		return;
+		goto abort;
 	}
 
 	openfds = 2;
-	pfds[SSL_SOCK_FD].fd           = ssl_sock;
+	pfds[SSL_SOCK_FD].fd           = ssl_ctx->fd;
 	pfds[SSL_SOCK_FD].events       = POLLIN;
 	pfds[PLAINTEXT_SOCK_FD].fd     = plaintext_sock;
 	pfds[PLAINTEXT_SOCK_FD].events = POLLIN;
@@ -336,29 +336,31 @@ do_proxy(const char *client_ip, struct ssl_server_context *ctx, int ssl_sock)
 				if (r_ev & POLLIN) {
 					switch (i) {
 					case SSL_SOCK_FD:
-						ret = handle_ssl_msg(ctx, plaintext_sock);
+						ret = handle_ssl_msg(ssl_ctx, plaintext_sock);
 						break;
 					case PLAINTEXT_SOCK_FD:
-						ret = handle_plaintext_msg(ctx, plaintext_sock);
+						ret = handle_plaintext_msg(ssl_ctx, plaintext_sock);
 						break;
 					}
 
 					if (ret < 0)
-						goto quit;
+						goto conn_ended;
 				}
 				else { /* POLLERR | POLLHUP */
 					/* If one of the pairs have disconnected, theres
 					 * nothing we can do.. so... aborting everything.
 					 */
-					goto quit;
+					goto conn_ended;
 				}
 			}
 		}
 	}
-quit:
-	log_message("Connection closed for client %s\n", client_ip);
-	ssl_close(ctx);
+
+conn_ended:
 	close(plaintext_sock);
+abort:
+	ssl_close(ssl_ctx);
+	log_message("Connection closed for client %s\n", client_ip);
 }
 
 /**
@@ -382,8 +384,18 @@ static void handle_client(int ssl_sock)
 
 	log_message("New client connection from %s", client_ip);
 
+	/*
+	 * Configure an initial timeout for the handshake.
+	 *
+	 * The idea of putting a timeout to the handshake process, is to avoid
+	 * random non-SSL clients trying to connect and possibly occupying
+	 * resources on our server for an indefinite amount of time.
+	 */
+	ctx->fd         = ssl_sock;
+	ctx->timeout_ms = MAX_HANDSHAKE_TIMEOUT_MS;
+
 	/* Initialize SSL */
-	if (!ssl_init_server_context(ctx, &ssl_sock)) {
+	if (!ssl_init_server_context(ctx)) {
 		log_message("Failed to initialize server context for client %s",
 			client_ip);
 		ssl_close(ctx);
@@ -391,7 +403,7 @@ static void handle_client(int ssl_sock)
 	}
 
 	/* Handle data forwarding */
-	do_proxy(client_ip, ctx, ssl_sock);
+	do_proxy(client_ip, ctx);
 }
 
 /**
