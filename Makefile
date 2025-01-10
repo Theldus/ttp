@@ -1,21 +1,37 @@
+#
+# TTP: Tiny TLS Proxy: a very simple TLS proxy server with
+#                      focus on resource consumption.
+#
+# Made by Davidson Francis.
+# This is free and unencumbered software released into the public domain.
+#
+
 TOOLSDIR = $(CURDIR)/tools
 CC      ?= cc
 CFLAGS   = -DUSE_BEARSSL
-CFLAGS  += -I$(CURDIR)/../BearSSL/inc -I$(TOOLSDIR)
-LDFLAGS  = -L$(CURDIR)/../BearSSL/build --static
+CFLAGS  += -I$(CURDIR)/BearSSL/inc -I$(TOOLSDIR) -Os
+LDFLAGS  = -L$(CURDIR)/BearSSL/build --static
 LDLIBS  += -lbearssl
 
-OBJS     = ttp.o base64.o bearssl-layer.o
-OBJS    += $(TOOLSDIR)/files.o \
-	       $(TOOLSDIR)/vector.o \
-	       $(TOOLSDIR)/xmem.o \
-	       $(TOOLSDIR)/names.o \
-	       $(TOOLSDIR)/certs.o \
-	       $(TOOLSDIR)/errors.o
+OBJS  = ttp.o base64.o bearssl-layer.o
+OBJS += $(TOOLSDIR)/files.o \
+		$(TOOLSDIR)/vector.o \
+		$(TOOLSDIR)/xmem.o \
+		$(TOOLSDIR)/names.o \
+		$(TOOLSDIR)/certs.o \
+		$(TOOLSDIR)/errors.o
 
 .PHONY: all
 all: ttp Makefile
 
-ttp: $(OBJS)
+ttp.o: ttp.c bearssl-layer.h
+bearssl-layer.o: bearssl-layer.c bearssl-layer.h
+
+ttp: $(OBJS) $(CURDIR)/BearSSL/build/libbearssl.a
+
+$(CURDIR)/BearSSL/build/libbearssl.a:
+	$(MAKE) -C $(CURDIR)/BearSSL CC="$(CC)" build/libbearssl.a
+
 clean:
-	rm -f $(OBJS) ttp
+	rm -f  $(OBJS) ttp
+	rm -fr $(CURDIR)/BearSSL/build
