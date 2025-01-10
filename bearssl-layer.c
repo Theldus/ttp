@@ -83,8 +83,7 @@ static private_key *copy_private_key(const private_key *src_pk)
  *
  */
 static int decode_key_pem(
-	const unsigned char *rsa_key_buf, size_t len,
-	const private_key **rpk)
+	const unsigned char *rsa_key_buf, size_t len, const private_key **rpk)
 {
 	const char *errname, *errmsg;
 	br_skey_decoder_context dc;
@@ -192,8 +191,7 @@ decode_cert_chain_pem(const uint8_t *cert_chain_buf, size_t len,
 /*
  * Low-level data read callback for the simplified SSL I/O API.
  */
-static int
-sock_read(void *ctx, unsigned char *buf, size_t len)
+static int sock_read(void *ctx, unsigned char *buf, size_t len)
 {
 	struct ssl_server_context *s_ctx = ctx;
 	struct pollfd pfd;
@@ -233,8 +231,7 @@ sock_read(void *ctx, unsigned char *buf, size_t len)
 /*
  * Low-level data write callback for the simplified SSL I/O API.
  */
-static int
-sock_write(void *ctx, const unsigned char *buf, size_t len)
+static int sock_write(void *ctx, const unsigned char *buf, size_t len)
 {
 	struct ssl_server_context *s_ctx = ctx;
 	ssize_t wlen;
@@ -249,6 +246,66 @@ sock_write(void *ctx, const unsigned char *buf, size_t len)
 	}
 }
 
+/**
+ *
+ */
+static int configure_x509(struct ssl_server_context *ctx)
+{
+    /* Define a structure to hold OID and corresponding field info */
+	struct dn_field_info {
+		const uint8_t *oid;
+		void *buf;
+		size_t size;
+		int index;
+	};
+
+    /* Array mapping DN fields to their OIDs and buffers */
+	const struct dn_field_info fields[NUM_ELTS] = {
+		{ (const uint8_t*)"\x03\x55\x04\x06", ctx->sub.C,  sizeof(ctx->sub.C),  ELT_C  },
+		{ (const uint8_t*)"\x03\x55\x04\x08", ctx->sub.ST, sizeof(ctx->sub.ST), ELT_ST },
+		{ (const uint8_t*)"\x03\x55\x04\x07", ctx->sub.L,  sizeof(ctx->sub.L),  ELT_L  },
+		{ (const uint8_t*)"\x03\x55\x04\x0a", ctx->sub.O,  sizeof(ctx->sub.O),  ELT_O  },
+		{ (const uint8_t*)"\x03\x55\x04\x0b", ctx->sub.OU, sizeof(ctx->sub.OU), ELT_OU },
+		{ (const uint8_t*)"\x03\x55\x04\x03", ctx->sub.CN, sizeof(ctx->sub.CN), ELT_CN }
+	};
+
+    /* Configure each DN element */
+	for (int i = 0; i < NUM_ELTS; i++) {
+		ctx->subject_elts[fields[i].index] = (br_name_element) {
+			.oid = fields[i].oid,
+			.buf = fields[i].buf,
+			.len = fields[i].size
+		};
+	}
+
+	/* Initialize X.509 validator with trust anchor */
+	br_x509_minimal_init_full(&ctx->xc, g_trust_anchor, 1);
+    /* Set up name elements in the X.509 context */
+	br_x509_minimal_set_name_elements(&ctx->xc, ctx->subject_elts, NUM_ELTS);
+    /* Setup client certificate authentication if enabled. */
+	if (g_trust_anchor)
+		br_ssl_server_set_trust_anchor_names_alt(&ctx->sc, g_trust_anchor, 1);
+
+	br_ssl_engine_set_x509(&ctx->sc.eng, &ctx->xc.vtable);
+	return 1;
+}
+
+/**
+ *
+ */
+static void print_subject(const struct ssl_server_context *ctx)
+{
+	static const char elem[][3] = {"C","ST","L","O","OU","CN"};
+	const br_name_element *elts;
+
+	log_message("Subject: ");
+	elts = ctx->subject_elts;
+	for (int i = 0; i < NUM_ELTS; i++) {
+		if (elts[i].status <= 0)
+			continue;
+		log_message("  %s=(%s)", elem[i], elts[i].buf);
+	}
+}
 
 
 /* ========================================================================= */
@@ -343,12 +400,7 @@ ssl_init_server_context(struct ssl_server_context *ctx)
     }
 
     /* === Certificate Validation Setup === */
-    /* Initialize X.509 validator with trust anchor */
-    br_x509_minimal_init_full(&ctx->xc, g_trust_anchor, 1);
-
-    /* Setup client certificate authentication */
-    br_ssl_server_set_trust_anchor_names_alt(&ctx->sc, g_trust_anchor, 1);
-    br_ssl_engine_set_x509(&ctx->sc.eng, &ctx->xc.vtable);
+    configure_x509(ctx);
 
     /* === Cryptographic Operations Setup === */
     /* Set default signature verification algorithms */
@@ -432,7 +484,11 @@ int ssl_handshake(struct ssl_server_context *ctx) {
 		}
 	}
 
-	/* If succeeded, disable our timeout. */
+	/* If succeeded, show the logged user (if any)
+	 * and disable timeout. */
+	if (g_trust_anchor)
+		print_subject(ctx);
+
 	ctx->timeout_ms = -1;
 	return ret;
 }
