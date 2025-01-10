@@ -1,0 +1,10 @@
+*~
+*.o
+*.pem
+*.crt
+*.pfx
+*.p12
+*.key
+*.csr
+ttp
+
