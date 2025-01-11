@@ -34,7 +34,14 @@ static const br_x509_certificate  *g_ca;
 static const br_x509_trust_anchor *g_trust_anchor;
 
 /**
+ * @brief Provided an RSA key, do a full copy (on heap) and save it
+ * in @p d_pk.
  *
+ * @param s_sk Private key to be copied.
+ * @param d_pk Pointer to where will store the newly allocated PK.
+ *             Please note that the 'br_rsa_private_key' is not allocated!
+ *
+ * @return Returns @p d_pk.
  */
 static br_rsa_private_key *
 copy_rsa_private_key(const br_rsa_private_key *s_pk, br_rsa_private_key *d_pk)
@@ -55,7 +62,14 @@ copy_rsa_private_key(const br_rsa_private_key *s_pk, br_rsa_private_key *d_pk)
 }
 
 /**
+ * @brief Provided an EC key, do a full copy (on heap) and save it
+ * in @p d_pk.
  *
+ * @param s_sk Private key to be copied.
+ * @param d_pk Pointer to where will store the newly allocated PK.
+ *             Please note that the 'br_ec_private_key' is not allocated!
+ *
+ * @return Returns @p d_pk.
  */
 static br_ec_private_key *
 copy_ec_private_key(const br_ec_private_key *s_pk, br_ec_private_key *d_pk)
@@ -68,7 +82,12 @@ copy_ec_private_key(const br_ec_private_key *s_pk, br_ec_private_key *d_pk)
 }
 
 /**
+ * @brief Provided a private key in @p src_pk (whether RSA or EC), do
+ * a full copy on heap and return its pointer.
  *
+ * @param Private key to be copied.
+ *
+ * @return Returns the address of the newly allocated private key.
  */
 static private_key *copy_private_key(const private_key *src_pk)
 {
@@ -87,7 +106,13 @@ static private_key *copy_private_key(const private_key *src_pk)
 }
 
 /**
+ * @brief Decodes a PEM-encoded private key into a private_key structure.
  *
+ * @param rsa_key_buf Buffer containing the PEM-encoded private key.
+ * @param len         Length of the buffer.
+ * @param rpk         Output parameter to store the decoded private key.
+ *
+ * @return 1 on success, 0 on failure.
  */
 static int decode_key_pem(
 	const unsigned char *rsa_key_buf, size_t len, const private_key **rpk)
@@ -150,7 +175,14 @@ out:
 }
 
 /**
+ * @brief Decodes a PEM-encoded certificate chain into a list of certificates.
  *
+ * @param cert_chain_buf Buffer containing the PEM-encoded certificate chain.
+ * @param len            Length of the buffer.
+ * @param certs          Output parameter to store the array of decoded certificates.
+ * @param certs_amnt     Output parameter to store the number of certificates.
+ *
+ * @return 1 on success, 0 on failure.
  */
 static int
 decode_cert_chain_pem(const uint8_t *cert_chain_buf, size_t len,
@@ -196,7 +228,16 @@ decode_cert_chain_pem(const uint8_t *cert_chain_buf, size_t len,
 }
 
 /*
- * Low-level data read callback for the simplified SSL I/O API.
+ * @brief Low-level data read callback for the simplified SSL I/O API.
+ *
+ * This function optionally blocks up to s_ctx->timeout_ms in order to cancel
+ * long connections.
+ *
+ * @param ctx SSL context.
+ * @param buf Destination buffer.
+ * @param len Destination buffer size/max amount to read.
+ *
+ * @return Returns -1 if error and/or timeout, 0 if success.
  */
 static int sock_read(void *ctx, unsigned char *buf, size_t len)
 {
@@ -236,7 +277,13 @@ static int sock_read(void *ctx, unsigned char *buf, size_t len)
 }
 
 /*
- * Low-level data write callback for the simplified SSL I/O API.
+ * @brief Low-level data write callback for the simplified SSL I/O API.
+ *
+ * @param ctx SSL context.
+ * @param buf Destination buffer.
+ * @param len Destination buffer size/max amount to read.
+ *
+ * @return Returns -1 if error and/or timeout, 0 if success.
  */
 static int sock_write(void *ctx, const unsigned char *buf, size_t len)
 {
@@ -254,7 +301,11 @@ static int sock_write(void *ctx, const unsigned char *buf, size_t len)
 }
 
 /**
+ * @brief Configure the x509 certificate validation.
  *
+ * @param ctx SSL Context.
+ *
+ * @return Always 1.
  */
 static int configure_x509(struct ssl_server_context *ctx)
 {
@@ -298,7 +349,12 @@ static int configure_x509(struct ssl_server_context *ctx)
 }
 
 /**
+ * @brief For a given SSL Context in @p ctx, dumps the info gathered
+ * for a client authenticated via certificate.
  *
+ * @param ctx SSL Context.
+ *
+ * @note This should be called only after a successful handshake.
  */
 static void print_subject(const struct ssl_server_context *ctx)
 {
@@ -314,13 +370,18 @@ static void print_subject(const struct ssl_server_context *ctx)
 	}
 }
 
-
 /* ========================================================================= */
 /* -------------------------- Public routines ------------------------------ */
 /* ========================================================================= */
 
 /**
+ * @brief Decode a PEM-encoded private key (wether RSA or EC) and
+ * saves the final result for later processing.
  *
+ * @param pk_buf PEM-encoded server private key.
+ * @param len    Length (in bytes) of @p pk_buf.
+ *
+ * @return Retuns 1 if success, 0 otherwise.
  */
 int ssl_init_server_private_key(const uint8_t *pk_buf, size_t len)
 {
@@ -334,7 +395,13 @@ int ssl_init_server_private_key(const uint8_t *pk_buf, size_t len)
 }
 
 /**
+ * @brief Decodes a PEM-encoded certificate chain and saves the final
+ * result for later processing.
  *
+ * @param chain  PEM-encoded server certificate chain.
+ * @param len    Length (in bytes) of @p chain.
+ *
+ * @return Retuns 1 if success, 0 otherwise.
  */
 int ssl_init_server_certificate_chain(const uint8_t *chain, size_t len)
 {
@@ -348,7 +415,16 @@ int ssl_init_server_certificate_chain(const uint8_t *chain, size_t len)
 }
 
 /**
+ * @brief Decodes a PEM-encoded certificate authority and saves the final
+ * result for later processing.
  *
+ * @param ca_buf PEM-encoded server certificate authority.
+ * @param len    Length (in bytes) of @p chain.
+ *
+ * @return Retuns 1 if success, 0 otherwise.
+ *
+ * @note This certificate is used for client authentication. If none is passed,
+ * then client authentication is disabled.
  */
 int ssl_init_server_certificate_authority(const char *ca_buf, size_t len)
 {
@@ -379,12 +455,13 @@ int ssl_init_server_certificate_authority(const char *ca_buf, size_t len)
 }
 
 /**
- * @brief Initializes server context with global certificates
+ * @brief Initializes server context with global certificates.
+ *
  * @param ctx Server context to initialize
+ *
  * @return 1 on success, 0 on failure
  */
-int
-ssl_init_server_context(struct ssl_server_context *ctx)
+int ssl_init_server_context(struct ssl_server_context *ctx)
 {
     /* Validate required certificates and keys are present */
     if (!g_cert_chain || !g_server_priv_key) {
@@ -425,7 +502,13 @@ ssl_init_server_context(struct ssl_server_context *ctx)
 }
 
 /**
+ * @brief Reads an already decrypted message from client, specified in @p ctx.
  *
+ * @param ctx  SSL context.
+ * @param dest Destination buffer.
+ * @param len  Amount of bytes to read.
+ *
+ * @return Returns the amount of bytes read if success, -1 otherwise.
  */
 int ssl_read(struct ssl_server_context *ctx, void *dest, size_t len)
 {
@@ -446,25 +529,36 @@ int ssl_read(struct ssl_server_context *ctx, void *dest, size_t len)
 }
 
 /**
+ * @brief Writes a (to be encrypted) buffer specified in @p src into
+ * the client in @p ctx of length @p len.
  *
+ * @param ctx SSL context.
+ * @param src Source buffer to be sent.
+ * @param len Source buffer length.
+ *
+ * @return Returns 0 if success, -1 otherwise.
  */
 int ssl_write_all(struct ssl_server_context *ctx, void *src, size_t len) {
 	return br_sslio_write_all(&ctx->ioc, src, len);
 }
 
 /**
+ * @brief Ensures all data has been sent.
  *
+ * @return Returns 0 if success, -1 if error.
  */
 int ssl_flush(struct ssl_server_context *ctx) {
 	return br_sslio_flush(&ctx->ioc);
 }
 
 /**
- *
+ * @brief Closes an underlying SSL connection provided in @p ctx.
+ * @return Always 0.
  */
 int ssl_close(struct ssl_server_context *ctx) {
 	br_sslio_close(&ctx->ioc);
 	close(*(int *)ctx->ioc.write_context);
+	return 0;
 }
 
 /**

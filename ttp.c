@@ -222,8 +222,10 @@ cleanup:
 
 /**
  * @brief Creates and connects socket to target server
+ *
  * @param host Target host address
  * @param port Target port
+ *
  * @return Socket descriptor on success, -1 on failure
  */
 static int connect_to_target(const char *host, int port)
@@ -288,7 +290,13 @@ ssize_t write_all(int conn, const uint8_t *buf, size_t len)
 }
 
 /**
+ * @brief Blocks until read some SSL message and then, forward it
+ * to the plaintext server.
  *
+ * @param ctx             SSL Context.
+ * @param plaintext_sock  Plaintext socket fd to send the message.
+ *
+ * @return Returns 0 on success, -1 on error.
  */
 static int handle_ssl_msg(struct ssl_server_context *ctx, int plaintext_sock)
 {
@@ -310,7 +318,13 @@ static int handle_ssl_msg(struct ssl_server_context *ctx, int plaintext_sock)
 }
 
 /**
+ * @brief Blocks until read some plaintext message and then, forward it
+ * to the SSL client.
  *
+ * @param ctx             SSL Context.
+ * @param plaintext_sock  Plaintext socket fd to read the message.
+ *
+ * @return Returns 0 on success, -1 on error.
  */
 static int handle_plaintext_msg(struct ssl_server_context *ctx, int plaintext_sock)
 {
@@ -333,10 +347,11 @@ static int handle_plaintext_msg(struct ssl_server_context *ctx, int plaintext_so
 }
 
 /**
- * @brief Handles data forwarding between client and target
+ * @brief Handles data forwarding between client (SSL) and target server
+ * (plaintext).
  *
  * @param client_ip Client IP for logging
- * @param ss_ctx    SSL context
+ * @param ssl_ctx   SSL context
  */
 static void
 do_proxy(const char *client_ip, struct ssl_server_context *ssl_ctx)
@@ -406,7 +421,7 @@ abort:
 
 /**
  * @brief Handles a client connection
- * @param sock_sock Client socket descriptor
+ * @param ssl_sock SSL Client socket descriptor
  */
 static void handle_client(int ssl_sock)
 {
