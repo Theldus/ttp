@@ -1,3 +1,10 @@
+/*
+ * TTP: Tiny TLS Proxy: a very simple TLS proxy server with
+ *                      focus on resource consumption.
+ * Made by Davidson Francis.
+ * This is free and unencumbered software released into the public domain.
+ */
+
 #ifndef BEARSSL_LAYER
 #define BEARSSL_LAYER
 

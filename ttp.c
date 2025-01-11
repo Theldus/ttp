@@ -1,3 +1,10 @@
+/*
+ * TTP: Tiny TLS Proxy: a very simple TLS proxy server with
+ *                      focus on resource consumption.
+ * Made by Davidson Francis.
+ * This is free and unencumbered software released into the public domain.
+ */
+
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,9 +22,11 @@
 #include "bearssl-layer.h"
 #endif
 
+/* Max recv buffer size and log lines. */
 #define BUFFER_SIZE  16386
 #define MAX_LOG_LINE 1024
 
+/* Socket list fds. */
 #define SSL_SOCK_FD       0
 #define PLAINTEXT_SOCK_FD 1
 
@@ -105,7 +114,60 @@ static int check_environment(void)
 	return 0;
 }
 
+/**
+ * @brief Structure to hold decoded certificate data
+ */
+struct decoded_cert {
+	uint8_t *data;
+	size_t len;
+};
 
+/**
+ * @brief Decodes a base64 environment variable into a decoded_cert structure
+ *
+ * @param env_var_name Name of the environment variable to decode
+ * @param required     Whether this certificate is required
+ * @param out_cert     Pointer to store decoded certificate data
+ *
+ * @return 1 on success, 0 on failure.
+ */
+static int
+decode_cert_from_env(const char *env_var_name, int required,
+	struct decoded_cert *out_cert)
+{
+	const char *b64_data = getenv(env_var_name);
+
+	if (!b64_data) {
+		if (!required) {
+			out_cert->data = NULL;
+			out_cert->len = 0;
+			return 1;
+		}
+		log_message("Required environment variable %s not found", env_var_name);
+		return 0;
+	}
+
+	out_cert->data = base64_decode((const uint8_t*)b64_data,
+		strlen(b64_data), &out_cert->len);
+	if (!out_cert->data) {
+		log_message("Failed to decode base64 data from %s", env_var_name);
+		return 0;
+	}
+
+	return 1;
+}
+
+/**
+ * @brief Safely frees a decoded_cert structure
+ */
+static void free_decoded_cert(struct decoded_cert *cert)
+{
+	if (cert) {
+		free(cert->data);
+		cert->data = NULL;
+		cert->len = 0;
+	}
+}
 
 /**
  * @brief Initializes global certificate storage from environment variables
@@ -113,69 +175,48 @@ static int check_environment(void)
  */
 static int init_certificates(void)
 {
-	const char *server_key_b64, *server_cert_b64, *server_ca_b64;
-	uint8_t    *decoded_key,    *decoded_cert,    *decoded_ca;
-	size_t     key_len, cert_len, ca_len;
-	int ret = 0;
+	struct decoded_cert server_key  = {0};
+	struct decoded_cert server_cert = {0};
+	struct decoded_cert server_ca   = {0};
+	int decode_result;
+	int ret;
 
-	/* Decode server private key */
-	server_key_b64 = getenv("TTP_SERVER_KEY_B64");
-	decoded_key    = base64_decode((const uint8_t*)server_key_b64,
-		strlen(server_key_b64), &key_len);
-	if (!decoded_key) {
-		log_message("Failed to decode (base64) server key");
+	ret = 0;
+
+    /* Decode server private key (required) */
+	if (decode_cert_from_env("TTP_SERVER_KEY_B64", 1, &server_key) < 0)
 		return 0;
+    /* Decode server certificate chain (required) */
+	if (decode_cert_from_env("TTP_SERVER_CERT_B64", 1, &server_cert) < 0)
+		goto cleanup;
+    /* Decode server CA (optional) */
+	if (decode_cert_from_env("TTP_CA_CERT_B64", 1, &server_ca) < 0)
+		goto cleanup;
+
+    /* Initialize SSL components */
+	if (!ssl_init_server_private_key(server_key.data, server_key.len)) {
+		log_message("Failed to initialize server private key");
+		goto cleanup;
 	}
 
-	/* Decode server certificate chain */
-	server_cert_b64 = getenv("TTP_SERVER_CERT_B64");
-	decoded_cert    = base64_decode((const uint8_t*)server_cert_b64,
-		strlen(server_cert_b64), &cert_len);
-	if (!decoded_cert) {
-		log_message("Failed to decode (base64) server chain certificates");
-		goto cleanup_key;
+	if (!ssl_init_server_certificate_chain(server_cert.data, server_cert.len)) {
+		log_message("Failed to initialize server certificate chain");
+		goto cleanup;
 	}
 
-	/* Decode server certificate authority. */
-	server_ca_b64 = getenv("TTP_CA_CERT_B64");
-	if (!server_ca_b64) {
-		log_message("Server CA not found, skipping client authentication...");
-		decoded_ca = NULL;
-		goto init;
-	}
-	decoded_ca = base64_decode((const uint8_t*)server_ca_b64,
-		strlen(server_ca_b64), &ca_len);
-	if (!decoded_ca) {
-		log_message("Failed to decode (base65) server CA!");
-		goto cleanup_cert;
-	}
-
-
-init:
-	/* Initialize SSL components */
-	if (!ssl_init_server_private_key(decoded_key, key_len)) {
-		log_message("Failed to decode rsa server key");
-		goto cleanup_ca;
-	}
-	if (!ssl_init_server_certificate_chain(decoded_cert, cert_len)) {
-		log_message("Failed to decode certificate chain");
-		goto cleanup_ca;
-	}
-	if (server_ca_b64) {
-		if (!ssl_init_server_certificate_authority(decoded_ca, ca_len)) {
-			log_message("Failed to decode certificate authority");
-			goto cleanup_ca;
+	if (server_ca.data) {
+		if (!ssl_init_server_certificate_authority(server_ca.data, server_ca.len)) {
+			log_message("Failed to initialize server certificate authority");
+			goto cleanup;
 		}
 	}
 
 	ret = 1;
-
-cleanup_ca:
-	free(decoded_ca);
-cleanup_cert:
-	free(decoded_cert);
-cleanup_key:
-	free(decoded_key);
+cleanup:
+    /* Free all decoded certificates */
+	free_decoded_cert(&server_key);
+	free_decoded_cert(&server_cert);
+	free_decoded_cert(&server_ca);
 	return ret;
 }
 
