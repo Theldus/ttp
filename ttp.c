@@ -178,7 +178,6 @@ static int init_certificates(void)
 	struct decoded_cert server_key  = {0};
 	struct decoded_cert server_cert = {0};
 	struct decoded_cert server_ca   = {0};
-	int decode_result;
 	int ret;
 
 	ret = 0;
@@ -272,7 +271,7 @@ static int connect_to_target(const char *host, int port)
  */
 ssize_t write_all(int conn, const uint8_t *buf, size_t len)
 {
-	const char *p;
+	const uint8_t *p;
 	ssize_t ret;
 
 	if (conn < 0)
@@ -358,7 +357,6 @@ do_proxy(const char *client_ip, struct ssl_server_context *ssl_ctx)
 {
 	struct pollfd pfds[2];
 	int plaintext_sock;
-	int openfds;
 	int r_ev;
 	int ret;
 
@@ -376,7 +374,6 @@ do_proxy(const char *client_ip, struct ssl_server_context *ssl_ctx)
 		goto abort;
 	}
 
-	openfds = 2;
 	pfds[SSL_SOCK_FD].fd           = ssl_ctx->fd;
 	pfds[SSL_SOCK_FD].events       = POLLIN;
 	pfds[PLAINTEXT_SOCK_FD].fd     = plaintext_sock;
@@ -429,7 +426,6 @@ static void handle_client(int ssl_sock)
 	struct ssl_server_context *ctx;
 	struct sockaddr_in addr;
 	socklen_t addr_len;
-	int plaintext_sock;
 
 	ctx      = xmalloc(sizeof(struct ssl_server_context));
 	addr_len = sizeof(addr);

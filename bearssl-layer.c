@@ -117,7 +117,6 @@ static private_key *copy_private_key(const private_key *src_pk)
 static int decode_key_pem(
 	const unsigned char *rsa_key_buf, size_t len, const private_key **rpk)
 {
-	const char *errname, *errmsg;
 	br_skey_decoder_context dc;
 	pem_object *pos;
 	size_t amnt_pem;
@@ -426,7 +425,7 @@ int ssl_init_server_certificate_chain(const uint8_t *chain, size_t len)
  * @note This certificate is used for client authentication. If none is passed,
  * then client authentication is disabled.
  */
-int ssl_init_server_certificate_authority(const char *ca_buf, size_t len)
+int ssl_init_server_certificate_authority(const uint8_t *ca_buf, size_t len)
 {
 	size_t ca_amnt;
 	if (g_ca)
@@ -435,7 +434,7 @@ int ssl_init_server_certificate_authority(const char *ca_buf, size_t len)
 	/* The decode is pretty much the same as in the certificate
 	 * but we ignore the length here, since I'm expecting
 	 * to be always 1. */
-	if (!decode_cert_chain_pem(ca_buf, len, &g_ca, &ca_amnt)) {
+	if (!decode_cert_chain_pem((const uint8_t*)ca_buf, len, &g_ca, &ca_amnt)) {
 		log_message("Failed to decode certificate CA!");
 		return 0;
 	}

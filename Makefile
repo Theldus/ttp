@@ -8,10 +8,9 @@
 
 TOOLSDIR = $(CURDIR)/tools
 CC      ?= cc
-CFLAGS   = -DUSE_BEARSSL
+CFLAGS   = -DUSE_BEARSSL -Wall
 CFLAGS  += -I$(CURDIR)/BearSSL/inc -I$(TOOLSDIR) -Os
-LDFLAGS  = -L$(CURDIR)/BearSSL/build --static
-LDLIBS  += -lbearssl
+LDFLAGS  = --static
 
 OBJS  = ttp.o base64.o bearssl-layer.o
 OBJS += $(TOOLSDIR)/files.o \

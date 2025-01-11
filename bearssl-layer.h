@@ -59,8 +59,8 @@
 
 	int ssl_init_server_private_key(const uint8_t *pk_buf, size_t len);
 	int ssl_init_server_certificate_chain(const uint8_t *chain, size_t len);
+	int ssl_init_server_certificate_authority(const uint8_t *ca_buf, size_t len);
 	int ssl_init_server_context(struct ssl_server_context *ctx);
-	int ssl_init_server_certificate_authority(const char *ca_buf, size_t len);
 	int ssl_read(struct ssl_server_context *ctx, void *dest, size_t len);
 	int ssl_write_all(struct ssl_server_context *ctx, void *src, size_t len);
 	int ssl_flush(struct ssl_server_context *ctx);
