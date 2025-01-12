@@ -6,7 +6,7 @@
 # This is free and unencumbered software released into the public domain.
 #
 
-TOOLSDIR = $(CURDIR)/tools
+TOOLSDIR = $(CURDIR)/BearSSL/tools
 CC      ?= cc
 CFLAGS   = -DUSE_BEARSSL -Wall
 CFLAGS  += -I$(CURDIR)/BearSSL/inc -I$(TOOLSDIR) -Os
