@@ -20,7 +20,10 @@ OBJS += $(TOOLSDIR)/files.o \
 		$(TOOLSDIR)/certs.o \
 		$(TOOLSDIR)/errors.o
 
-.PHONY: all
+GIT_HASH=$(shell git rev-parse --short HEAD 2>/dev/null || echo '$(VERSION)')
+CFLAGS += -DGIT_HASH=\"$(GIT_HASH)\"
+
+.PHONY: all clean
 all: ttp Makefile
 
 ttp.o: ttp.c bearssl-layer.h

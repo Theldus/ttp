@@ -535,6 +535,10 @@ int main(void)
 		return 1;
 	}
 
+	log_message("Tiny TLS Proxy (" GIT_HASH ")");
+	log_message("      (https://github.com/Theldus/TTP)");
+	log_message("-------------------------------------------------");
+
 	/* Get configuration from environment */
 	g_listen_port = atoi(getenv("TTP_LISTEN_PORT"));
 	g_target_port = atoi(getenv("TTP_TARGET_PORT"));
