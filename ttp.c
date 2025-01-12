@@ -37,6 +37,7 @@ extern unsigned char *base64_decode(
 static FILE       *g_logfile     = NULL;
 static int         g_listen_port = 7171;
 static int         g_target_port = 80;
+static int         g_chacha_only = 0;
 static const char *g_target_host = "127.0.0.1";
 
 /* Required environment variables */
@@ -208,6 +209,11 @@ static int init_certificates(void)
 			log_message("Failed to initialize server certificate authority");
 			goto cleanup;
 		}
+	}
+
+	if (getenv("TTP_CHACHA_ONLY")) {
+		g_chacha_only = 1;
+		log_message("ChaCha20-only mode enabled!");
 	}
 
 	ret = 1;
@@ -447,7 +453,7 @@ static void handle_client(int ssl_sock)
 	ctx->timeout_ms = MAX_HANDSHAKE_TIMEOUT_MS;
 
 	/* Initialize SSL */
-	if (!ssl_init_server_context(ctx)) {
+	if (!ssl_init_server_context(ctx, g_chacha_only)) {
 		log_message("Failed to initialize server context for client %s",
 			client_ip);
 		ssl_close(ctx);

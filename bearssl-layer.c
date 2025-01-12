@@ -374,7 +374,7 @@ static void print_subject(const struct ssl_server_context *ctx)
  * and br_ssl_server_init_full_ec() with sane cypher suites
  * and only TLS v1.2, to make Qualys SSL Server Test happy.
  *
- * This accepts both RSA and EC private
+ * This accepts both RSA and EC private key.
  *
  * @param ctx SSL Server Context.
  *
@@ -560,11 +560,12 @@ int ssl_init_server_certificate_authority(const uint8_t *ca_buf, size_t len)
 /**
  * @brief Initializes server context with global certificates.
  *
- * @param ctx Server context to initialize
+ * @param ctx         Server context to initialize
+ * @param chacha_only If not zero, use only ChaCha20 as the cypher suite.
  *
  * @return 1 on success, 0 on failure
  */
-int ssl_init_server_context(struct ssl_server_context *ctx)
+int ssl_init_server_context(struct ssl_server_context *ctx, int chacha_only)
 {
     /* Validate required certificates and keys are present */
     if (!g_cert_chain || !g_server_priv_key) {
@@ -573,7 +574,23 @@ int ssl_init_server_context(struct ssl_server_context *ctx)
     }
 
     /* === Server Context Initialization === */
-    init_ssl_with_sane_algs(ctx);
+	if (!chacha_only) {
+		init_ssl_with_sane_algs(ctx);
+	} else {
+		if (g_server_priv_key->key_type == BR_KEYTYPE_RSA) {
+			br_ssl_server_init_mine2c(
+				&ctx->sc,
+				g_cert_chain,
+				g_cert_chain_amnt,
+				&g_server_priv_key->key.rsa);
+		} else {
+			br_ssl_server_init_minf2c(
+				&ctx->sc,
+				g_cert_chain,
+				g_cert_chain_amnt,
+				&g_server_priv_key->key.ec);
+		}
+	}
 
     /* === Certificate Validation Setup === */
     configure_x509(ctx);
