@@ -369,6 +369,110 @@ static void print_subject(const struct ssl_server_context *ctx)
 	}
 }
 
+/**
+ * @brief This is an amalgamation of br_ssl_server_init_full_rsa()
+ * and br_ssl_server_init_full_ec() with sane cypher suites
+ * and only TLS v1.2, to make Qualys SSL Server Test happy.
+ *
+ * This accepts both RSA and EC private
+ *
+ * @param ctx SSL Server Context.
+ *
+ * @return Always 1.
+ */
+static int init_ssl_with_sane_algs(struct ssl_server_context *ctx)
+{
+	static uint16_t suites[3];
+	/*
+	 * Based on the original BearSSL's list (ssl_server_full_rsa.c)
+	 * but filtered with only 'safe' algorithms. The 'safe' criteria
+	 * is the one used on the results I got on Qualys SSL Server Test
+	 */
+
+	/* Choose the suites accordingly with the key used. */
+	if (g_server_priv_key->key_type == BR_KEYTYPE_RSA) {
+		suites[0] = BR_TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256;
+		suites[1] = BR_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256;
+		suites[2] = BR_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384;
+	} else {
+		suites[0] = BR_TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256;
+		suites[1] = BR_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256;
+		suites[2] = BR_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384;
+	}
+
+	/*
+	 * All hash functions are activated.
+	 * Note: the X.509 validation engine will nonetheless refuse to
+	 * validate signatures that use MD5 as hash function.
+	 */
+	static const br_hash_class *hashes[] = {
+		&br_md5_vtable,
+		&br_sha1_vtable,
+		&br_sha224_vtable,
+		&br_sha256_vtable,
+		&br_sha384_vtable,
+		&br_sha512_vtable
+	};
+
+	/*
+	 * Reset server context and set only TLS 1.2 as supported.
+	 */
+	br_ssl_server_zero(&ctx->sc);
+	br_ssl_engine_set_versions(&ctx->sc.eng, BR_TLS12, BR_TLS12);
+
+	/*
+	 * Set suites and elliptic curve implementation (for ECDHE).
+	 */
+	br_ssl_engine_set_suites(&ctx->sc.eng, suites,
+		(sizeof suites) / (sizeof suites[0]));
+	br_ssl_engine_set_default_ec(&ctx->sc.eng);
+
+	/*
+	 * Set the "server policy": handler for the certificate chain
+	 * and private key operations.
+	 */
+	if (g_server_priv_key->key_type == BR_KEYTYPE_RSA) {
+		br_ssl_server_set_single_rsa(&ctx->sc, g_cert_chain, g_cert_chain_amnt,
+			&g_server_priv_key->key.rsa,
+			BR_KEYTYPE_KEYX | BR_KEYTYPE_SIGN,
+			br_rsa_private_get_default(),
+			br_rsa_pkcs1_sign_get_default());
+	} else {
+		br_ssl_server_set_single_ec(&ctx->sc, g_cert_chain, g_cert_chain_amnt,
+			&g_server_priv_key->key.ec,
+			BR_KEYTYPE_KEYX | BR_KEYTYPE_SIGN,
+			BR_KEYTYPE_EC,
+			br_ssl_engine_get_ec(&ctx->sc.eng),
+			br_ecdsa_i15_sign_asn1); /* Assuming BR_LOMUL defined. */
+	}
+
+	/*
+	 * Set supported hash functions.
+	 */
+	for (int id = br_md5_ID; id <= br_sha512_ID; id ++) {
+		const br_hash_class *hc;
+		hc = hashes[id - 1];
+		br_ssl_engine_set_hash(&ctx->sc.eng, id, hc);
+	}
+
+	/*
+	 * Set the PRF implementations.
+	 */
+	br_ssl_engine_set_prf10(&ctx->sc.eng, &br_tls10_prf);
+	br_ssl_engine_set_prf_sha256(&ctx->sc.eng, &br_tls12_sha256_prf);
+	br_ssl_engine_set_prf_sha384(&ctx->sc.eng, &br_tls12_sha384_prf);
+
+	/*
+	 * Symmetric encryption.
+	 */
+	br_ssl_engine_set_default_aes_cbc(&ctx->sc.eng);
+	br_ssl_engine_set_default_aes_ccm(&ctx->sc.eng);
+	br_ssl_engine_set_default_aes_gcm(&ctx->sc.eng);
+	br_ssl_engine_set_default_des_cbc(&ctx->sc.eng);
+	br_ssl_engine_set_default_chapol(&ctx->sc.eng);
+	return 1;
+}
+
 /* ========================================================================= */
 /* -------------------------- Public routines ------------------------------ */
 /* ========================================================================= */
@@ -469,18 +573,7 @@ int ssl_init_server_context(struct ssl_server_context *ctx)
     }
 
     /* === Server Context Initialization === */
-    if (g_server_priv_key->key_type == BR_KEYTYPE_RSA) {
-        br_ssl_server_init_full_rsa(&ctx->sc,
-            g_cert_chain,
-            g_cert_chain_amnt,
-            &g_server_priv_key->key.rsa);
-    } else {
-        br_ssl_server_init_full_ec(&ctx->sc,
-            g_cert_chain,
-            g_cert_chain_amnt,
-            BR_KEYTYPE_EC,
-            &g_server_priv_key->key.ec);
-    }
+    init_ssl_with_sane_algs(ctx);
 
     /* === Certificate Validation Setup === */
     configure_x509(ctx);
