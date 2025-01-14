@@ -1,7 +1,8 @@
 # 📜 ttp
 [![License: MIT](https://img.shields.io/badge/License-Unlicense-8af7ff.svg)](https://opensource.org/licenses/Unlicense)
+[![Build Status](https://github.com/Theldus/ttp/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/Theldus/ttp/actions/workflows/c-cpp.yml)
 
-Tiny TLS Proxy (TTP) is a lightweight TLS proxy server with authentication support, written in C with just 816 lines of code. It is designed to be extremely resource-efficient and minimalistic.
+Tiny TLS Proxy (TTP) is a lightweight TLS proxy server with authentication support, written in C with just 816 LOCs. It is designed to be resource-efficient and minimalistic.
 
 ## Why Another TLS Proxy?
 To put it simply: because Stunnel was too bloated for my needs!
@@ -14,7 +15,7 @@ To elaborate: I wanted to run a TLS proxy server on my Mikrotik router, which ha
 Given that my Mikrotik has limited storage (~776kB), I needed to run everything in a ramdisk. While ~6MB might seem negligible, I didn't want to waste my precious RAM on such overhead. Additionally, I wanted a solution where the entire configuration could be managed through environment variables, a feature that Stunnel (as far as I know) does not support.
 
 > [!NOTE]
-> In Stunnel's defense: I have used and appreciated it for many years. However, it only supports OpenSSL, a library notorious for its size and complexity. Since Stunnel has no plans to support other SSL/TLS libraries, I had no interest in patching it either ;-).
+> In Stunnel's defense: I have used and appreciated it for many years. However, it only supports OpenSSL, a library notorious for its size and complexity. Since Stunnel (seems to) have no plans to support other SSL/TLS libraries, I had no interest in patching it either ;-).
 
 ## How?
 With OpenSSL out of the question, I decided to try my luck with BearSSL. This library is compact, fully featured, avoids dynamic memory allocations, and can even run on microcontrollers. As a bonus, it is MIT-licensed.
@@ -62,7 +63,7 @@ This configuration sets up TTP to listen on port `7171`, forward traffic to `loc
 The easiest and recommended way to use TTP is via the Docker image available at: [theldus/ttp:latest](https://hub.docker.com/repository/docker/theldus/ttp/tags), compatible with armv6, armv7, and aarch64. However, if you prefer to build it manually, the process is quite straightforward:
 ```bash
 # Clone
-$ git clone https://github.com/Theldus/ttp.git
+$ git clone --recursive https://github.com/Theldus/ttp.git
 $ cd ttp/
 
 # Build
