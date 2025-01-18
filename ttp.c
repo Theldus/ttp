@@ -352,6 +352,11 @@ static int handle_plaintext_msg(struct ssl_server_context *ctx, int plaintext_so
 }
 
 /**
+ * Generic handle message.
+ */
+typedef int (*handle_ssl_fn)(struct ssl_server_context *, int);
+
+/**
  * @brief Handles data forwarding between client (SSL) and target server
  * (plaintext).
  *
@@ -361,10 +366,10 @@ static int handle_plaintext_msg(struct ssl_server_context *ctx, int plaintext_so
 static void
 do_proxy(const char *client_ip, struct ssl_server_context *ssl_ctx)
 {
+	handle_ssl_fn msg_handle[2];
 	struct pollfd pfds[2];
 	int plaintext_sock;
 	int r_ev;
-	int ret;
 
 	/* Attempt to do the handshake process, including CA auth. */
 	if (ssl_handshake(ssl_ctx) < 0)
@@ -385,24 +390,16 @@ do_proxy(const char *client_ip, struct ssl_server_context *ssl_ctx)
 	pfds[PLAINTEXT_SOCK_FD].fd     = plaintext_sock;
 	pfds[PLAINTEXT_SOCK_FD].events = POLLIN;
 
+	msg_handle[SSL_SOCK_FD]       = handle_ssl_msg;
+	msg_handle[PLAINTEXT_SOCK_FD] = handle_plaintext_msg;
+
 	log_message("Started forwarding for client %s", client_ip);
 
-	while (poll(pfds, 2, -1) != -1)
-	{
-		for (int i = 0; i < 2; i++)
-		{
+	while (poll(pfds, 2, -1) != -1) {
+		for (int i = 0; i < 2; i++) {
 			if ((r_ev = pfds[i].revents) != 0) {
 				if (r_ev & POLLIN) {
-					switch (i) {
-					case SSL_SOCK_FD:
-						ret = handle_ssl_msg(ssl_ctx, plaintext_sock);
-						break;
-					case PLAINTEXT_SOCK_FD:
-						ret = handle_plaintext_msg(ssl_ctx, plaintext_sock);
-						break;
-					}
-
-					if (ret < 0)
+					if (msg_handle[i](ssl_ctx, plaintext_sock) < 0)
 						goto conn_ended;
 				}
 				else { /* POLLERR | POLLHUP */
