@@ -402,10 +402,15 @@ do_proxy(const char *client_ip, struct ssl_server_context *ssl_ctx)
 					if (msg_handle[i](ssl_ctx, plaintext_sock) < 0)
 						goto conn_ended;
 				}
-				else { /* POLLERR | POLLHUP */
-					/* If one of the pairs have disconnected, theres
-					 * nothing we can do.. so... aborting everything.
+				else {
+					/* Abort everything if POLLERR | POLLHUP.
+					 *
+					 * If there was an error on the SSL sock, signal
+					 * it, so our close function can catch.
 					 */
+					if (i == SSL_SOCK_FD)
+						ssl_ctx->sock_error = 1;
+
 					goto conn_ended;
 				}
 			}
@@ -448,6 +453,7 @@ static void handle_client(int ssl_sock)
 	 */
 	ctx->fd         = ssl_sock;
 	ctx->timeout_ms = MAX_HANDSHAKE_TIMEOUT_MS;
+	ctx->sock_error = 0;
 
 	/* Initialize SSL */
 	if (!ssl_init_server_context(ctx, g_chacha_only)) {

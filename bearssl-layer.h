@@ -55,6 +55,7 @@
 		/* Connection data. */
 		int fd;
 		int timeout_ms;
+		int sock_error;
 	};
 
 	int ssl_init_server_private_key(const uint8_t *pk_buf, size_t len);

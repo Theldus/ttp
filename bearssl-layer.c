@@ -245,6 +245,10 @@ static int sock_read(void *ctx, unsigned char *buf, size_t len)
 	ssize_t rlen;
 	int ret;
 
+	/* Fail early if there is already an error. */
+	if (s_ctx->sock_error)
+		return -1;
+
 	pfd.fd     = s_ctx->fd;
 	pfd.events = POLLIN;
 	errno      = 0;
@@ -260,6 +264,7 @@ static int sock_read(void *ctx, unsigned char *buf, size_t len)
 				errno = 0;
 				continue;
 			}
+			s_ctx->sock_error = 1;
 			return -1;
 		}
 
@@ -269,6 +274,7 @@ static int sock_read(void *ctx, unsigned char *buf, size_t len)
 				errno = 0;
 				continue;
 			}
+			s_ctx->sock_error = 1;
 			return -1;
 		}
 		return (int)rlen;
@@ -288,11 +294,17 @@ static int sock_write(void *ctx, const unsigned char *buf, size_t len)
 {
 	struct ssl_server_context *s_ctx = ctx;
 	ssize_t wlen;
+
+	/* Fail early if there is already an error. */
+	if (s_ctx->sock_error)
+		return -1;
+
 	for (;;) {
 		wlen = write(s_ctx->fd, buf, len);
 		if (wlen <= 0) {
 			if (wlen < 0 && errno == EINTR)
 				continue;
+			s_ctx->sock_error = 1;
 			return -1;
 		}
 		return (int)wlen;
@@ -665,7 +677,10 @@ int ssl_flush(struct ssl_server_context *ctx) {
  * @return Always 0.
  */
 int ssl_close(struct ssl_server_context *ctx) {
-	br_sslio_close(&ctx->ioc);
+	/* Do a clean close only if the SSL socket is still working. */
+	if (!ctx->sock_error)
+		br_sslio_close(&ctx->ioc);
+
 	close(*(int *)ctx->ioc.write_context);
 	return 0;
 }
